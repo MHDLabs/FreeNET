@@ -1,237 +1,666 @@
 # 🚀 FreeNET
 
-> Tiny, simple and lightweight VLESS server built for Railway.
+> Tiny, simple and lightweight VLESS / XHTTP / Trojan proxy server built for Railway.
+> **Deploy → Get Subscription → Use → Forget**
 
-FreeNET is a minimal, single-UUID VLESS server that speaks three transports — WebSocket, XHTTP `packet-up`, and XHTTP `stream-up` — and exposes all three through a single subscription endpoint. It has no admin panel, no bot, no user management and no per-user limits. You set one UUID, deploy it, and hand out a subscription link.
+[🇮🇷 فارسی](README-fa.md)
 
-It is a stripped-down companion to a larger project (X4G), kept intentionally small.
-
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688?logo=fastapi&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
-![Railway](https://img.shields.io/badge/Railway-deploy-0B0D0E?logo=railway&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-
----
-
-## ✨ Features
-
-- 🔐 **Single UUID** — configured entirely through an environment variable
-- 🌐 **Three transports out of the box**
-  - `vless-ws` (WebSocket)
-  - `xhttp-packet-up` (XHTTP, sequence-numbered upload)
-  - `xhttp-stream-up` (XHTTP, single continuous POST upload)
-- 📦 **One subscription URL** — returns all three transports as base64 (with an optional `?raw=1` plain-text view)
-- 🧵 **Adaptive flow control** for XHTTP `stream-up` to reduce syscall overhead under load
-- ♻️ **Session reaper** that cleans idle XHTTP sessions automatically
-- 🚫 **No panel. No bot. No database. No limits.**
-- 🐳 **Dockerfile included**, ready for Railway
+![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python\&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi\&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker\&logoColor=white)
+![Railway](https://img.shields.io/badge/Railway-deploy-0B0D0E?logo=railway\&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue)
 
 ---
 
 ## 🚀 Quick Start
 
-### Run locally with Docker
+FreeNET is made for people who want a proxy server without managing a full panel.
 
-```bash
-docker build -t freenet .
+### 1. Deploy to Railway
 
-docker run --rm -p 8000:8000 \
-  -e VLESS_UUID=00000000-0000-0000-0000-000000000000 \
-  freenet
+Deploy this repository to Railway and add a persistent Volume mounted at:
+
+```text
+/data
 ```
 
-### Run locally with Python
+The volume is important because FreeNET stores its identity and traffic statistics there.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+### 2. Let FreeNET generate everything
 
-export VLESS_UUID=00000000-0000-0000-0000-000000000000
-uvicorn main:app --host 0.0.0.0 --port 8000
+On the first start, FreeNET automatically creates:
+
+```text
+/data/identity.json
 ```
 
-Once it's running, the subscription is available at:
+It contains:
 
+```json
+{
+  "uuid": "...",
+  "trojan_password": "...",
+  "subscription_token": "..."
+}
 ```
-http://localhost:8000/sub/00000000-0000-0000-0000-000000000000
+
+You do **not** need to create these manually.
+
+### 3. Get your subscription
+
+Read:
+
+```text
+/data/identity.json
 ```
+
+and copy the value of:
+
+```text
+subscription_token
+```
+
+Then open:
+
+```text
+https://<YOUR-RAILWAY-DOMAIN>/sub/<subscription_token>
+```
+
+Add that URL to your client as a subscription.
+
+That's it. ❤️
 
 ---
 
 ## ☁️ Railway Deployment
 
-FreeNET is designed to run on Railway with zero extra configuration.
+FreeNET is designed around Railway's HTTP/HTTPS networking.
 
-1. Fork or push this repository to GitHub.
-2. In Railway: **New Project → Deploy from GitHub repo**, then pick the repository.
-3. Railway will detect the `Dockerfile` and build it automatically.
-4. Open the service → **Variables** → add:
+### What you need
 
-   | Key          | Value                                  |
-   | ------------ | -------------------------------------- |
-   | `VLESS_UUID` | a UUID you generate (see below)        |
+* A Railway service
+* The included `Dockerfile`
+* A persistent Volume mounted at `/data`
+* A public Railway domain
 
-5. Open the service → **Settings → Networking** → **Generate Domain**.
-6. Railway sets `RAILWAY_PUBLIC_DOMAIN` automatically once a domain exists.
-7. Healthcheck is already declared in `railway.json` (`/health`).
+Railway provides the listening port through:
 
-You can generate a UUID anywhere, e.g.:
-
-```bash
-python -c "import uuid; print(uuid.uuid4())"
+```text
+$PORT
 ```
 
-After the service comes up, the subscription lives at:
+FreeNET binds to:
 
+```text
+0.0.0.0
 ```
-https://<your-railway-domain>/sub/<VLESS_UUID>
+
+Healthcheck:
+
+```text
+/health
 ```
+
+### Persistent data
+
+FreeNET uses:
+
+```text
+/data/identity.json
+/data/stats.json
+```
+
+The identity must persist because your VLESS UUID, Trojan password and subscription token are generated once and reused.
+
+Without persistent storage, a new identity can be generated after the data is lost and previously shared links may stop working.
+
+### TLS
+
+TLS is handled by Railway.
+
+Clients connect through the Railway domain using HTTPS/WSS.
 
 ---
 
-## ⚙️ Configuration
+## 🧩 What is FreeNET?
 
-All configuration is done through environment variables.
+FreeNET is a minimal proxy server for people who simply want one working deployment.
 
-| Variable              | Required | Default        | Description                                                       |
-| --------------------- | :------: | -------------- | ----------------------------------------------------------------- |
-| `VLESS_UUID`          |    ✅    | —              | The UUID that clients connect with. Must be a valid UUID format.  |
-| `VLESS_FP`            |    ❌    | `firefox`      | uTLS fingerprint embedded in the generated share links.           |
-| `VLESS_PORT`          |    ❌    | `443`          | Port written into the share links.                                |
-| `VLESS_SNI`           |    ❌    | request host   | SNI used in the share links. Falls back to the request `Host`.    |
-| `VLESS_WS_ALPN`       |    ❌    | `http/1.1`     | ALPN for the WebSocket transport.                                 |
-| `VLESS_XHTTP_ALPN`    |    ❌    | `h2,http/1.1`  | ALPN for both XHTTP transports.                                   |
-| `PORT`                |    ❌    | `8000`         | HTTP port. Railway sets this automatically.                       |
-| `RAILWAY_PUBLIC_DOMAIN` |  ❌    | `localhost`    | Used only for the startup log line. Set by Railway automatically. |
+It is **not** a full VPN panel.
 
-> ⚠️ **If `VLESS_UUID` is missing or malformed, the app refuses to start.** This is intentional — running with a random UUID would silently invalidate every previously shared subscription link.
+There is no need to manage:
+
+* users
+* databases
+* quotas
+* expiry dates
+* admin dashboards
+* billing systems
+* per-user monitoring
+
+The idea is simple:
+
+```text
+Deploy
+  ↓
+Get subscription
+  ↓
+Use it
+```
+
+FreeNET intentionally stays small.
+
+---
+
+## ✨ Features
+
+* 🔐 Automatic VLESS UUID generation
+* 🔑 Automatic Trojan password generation
+* 🎟️ Automatic subscription token generation
+* 🌐 VLESS over WebSocket
+* ⚡ XHTTP support
+* 🐇 Trojan over WebSocket
+* 📡 One subscription URL
+* 📊 Global upload/download statistics
+* ⏱️ Uptime display
+* 💾 Persistent `/data` storage
+* 🐳 Docker-ready
+* ☁️ Railway-ready
+* 🚫 No panel
+* 🚫 No database
+* 🚫 No user management
+* 🚫 No per-user monitoring
+
+---
+
+## 🆚 Why FreeNET?
+
+There are already many capable panel-based projects such as:
+
+* X4G
+* RVG
+* StanNG
+* SpiderPanel
+* Lunel
+
+They solve a different problem: managing users, quotas, expiry, dashboards, subscriptions and other operational features.
+
+FreeNET intentionally does less.
+
+```text
+Panel-style projects:
+
+Panel
+ ↓
+Users
+ ↓
+Database
+ ↓
+Management
+ ↓
+Monitoring
+```
+
+FreeNET:
+
+```text
+Deploy
+ ↓
+Subscription
+ ↓
+Done
+```
+
+FreeNET is not trying to replace full-featured panels.
+
+It is for the person who says:
+
+> **"I don't need a panel. I just want a working proxy server."**
+
+---
+
+## 🌐 Supported Protocols
+
+FreeNET currently provides:
+
+```text
+VLESS
+XHTTP
+Trojan
+```
+
+All proxy traffic is relayed over TCP.
+
+### VLESS
+
+VLESS is served over WebSocket.
+
+Endpoint:
+
+```text
+/vless/{uuid}
+```
+
+The subscription uses:
+
+```text
+type=ws
+security=tls
+```
+
+TLS is provided by Railway.
+
+---
+
+### XHTTP
+
+XHTTP is served through HTTP requests.
+
+Endpoints:
+
+```text
+/xhttp/{uuid}
+/xhttp/{uuid}/{path}
+```
+
+Supported methods:
+
+```text
+GET
+POST
+```
+
+Supported modes:
+
+```text
+packet-up
+stream-up
+```
+
+The subscription currently provides the `packet-up` configuration.
+
+XHTTP does not require a separate public TCP port.
+
+---
+
+### Trojan
+
+Trojan is served over WebSocket.
+
+Endpoint:
+
+```text
+/trojan/{uuid}
+```
+
+The Trojan password is generated automatically and stored in:
+
+```text
+/data/identity.json
+```
+
+No separate public TCP port is required.
 
 ---
 
 ## 📡 Subscription
 
-The subscription endpoint returns **all three transports** for the same UUID, base64-encoded:
+Subscription endpoint:
 
-```
-GET /sub/{uuid}
-```
-
-If `{uuid}` does not match `VLESS_UUID`, the server returns `404`.
-
-You can also request the raw (non-base64) form for debugging:
-
-```
-GET /sub/{uuid}?raw=1
+```text
+/sub/{token}
 ```
 
-Example response (decoded):
+The subscription token is separate from the VLESS UUID.
 
+Example:
+
+```text
+https://example.up.railway.app/sub/AbCdEfGhIjKlMnOpQrStUvWx
 ```
-vless://<uuid>@<host>:443?encryption=none&security=tls&type=ws&host=<host>&path=/ws/<uuid>&sni=<host>&fp=firefox&alpn=http/1.1#FreeNET-WS
-vless://<uuid>@<host>:443?encryption=none&security=tls&type=xhttp&mode=packet-up&host=<host>&path=/xhttp-siz10/packet-up/<uuid>&sni=<host>&fp=firefox&alpn=h2,http/1.1#FreeNET-PacketUp
-vless://<uuid>@<host>:443?encryption=none&security=tls&type=xhttp&mode=stream-up&host=<host>&path=/xhttp-siz10/stream-up/<uuid>&sni=<host>&fp=firefox&alpn=h2,http/1.1#FreeNET-StreamUp
+
+The response is Base64-encoded and contains the available proxy configurations.
+
+Currently:
+
+```text
+VLESS WebSocket
+Trojan WebSocket
+XHTTP packet-up
 ```
-
-### Endpoints
-
-| Method | Path                                                  | Purpose                          |
-| ------ | ----------------------------------------------------- | -------------------------------- |
-| GET    | `/`                                                   | Liveness string (`OK`)           |
-| GET    | `/health`                                             | Healthcheck JSON                 |
-| GET    | `/sub/{uuid}`                                         | Subscription (base64 by default) |
-| WS     | `/ws/{uuid}`                                          | VLESS over WebSocket             |
-| GET    | `/xhttp-siz10/{mode}/{uuid}/{session_id}`             | XHTTP downlink (`packet-up` / `stream-up`) |
-| POST   | `/xhttp-siz10/packet-up/{uuid}/{session_id}/{seq}`    | XHTTP `packet-up` uplink         |
-| POST   | `/xhttp-siz10/stream-up/{uuid}/{session_id}`          | XHTTP `stream-up` uplink         |
 
 ---
 
-## 🏗️ Project Structure
+### 📊 Status Node
+
+The subscription also includes a small display-only node such as:
 
 ```text
-FreeNET/
-├── main.py           → App entrypoint, healthcheck, startup validation
-├── tunnel.py         → VLESS WebSocket + XHTTP (packet-up / stream-up) relay
-├── subscription.py   → Builds VLESS share links and serves /sub/{uuid}
-├── requirements.txt  → Python dependencies
-├── Dockerfile        → Python 3.11-slim image
-├── railway.json      → Railway build/deploy configuration
-├── .dockerignore     → Keeps the image small
-├── .gitignore        → Keeps the repository clean
-└── README.md         → You are here
+📊 FreeNET • 18d • ↑42.6GB ↓183.2GB
 ```
+
+It shows the instance's:
+
+* uptime
+* total upload
+* total download
+
+This is **not a real proxy node** and is not intended for connecting.
+
+---
+
+### Subscription Headers
+
+FreeNET also returns subscription metadata such as:
+
+```text
+Subscription-Userinfo
+Profile-Title
+```
+
+Clients such as v2rayN can use the subscription URL directly.
+
+---
+
+## 📊 Global Statistics
+
+FreeNET only tracks statistics for the whole instance.
+
+There is **no per-user tracking**.
+
+Tracked values:
+
+```text
+Total Upload
+Total Download
+Uptime
+```
+
+Statistics are stored in:
+
+```text
+/data/stats.json
+```
+
+Upload and download counters persist when the `/data` volume persists.
+
+Uptime represents the current process uptime and resets after a service restart.
+
+---
+
+## ⚙️ Configuration
+
+FreeNET is intentionally light on configuration.
+
+| Variable           |         Required | Default        | Purpose                                    |
+| ------------------ | ---------------: | -------------- | ------------------------------------------ |
+| `PORT`             | Railway-provided | `8000` locally | HTTP listen port                           |
+| `FREENET_DATA_DIR` |               No | `/data`        | Directory used for identity and statistics |
+
+### Automatically managed identity
+
+These values are generated and managed automatically:
+
+```text
+VLESS UUID
+Trojan Password
+Subscription Token
+```
+
+They are stored in:
+
+```text
+/data/identity.json
+```
+
+You should not manually configure them.
 
 ---
 
 ## 🛠️ Local Development
 
-FreeNET is intentionally small — there is nothing to migrate, seed, or admin.
+Clone the repository:
 
 ```bash
 git clone https://github.com/MHDLabs/FreeNET.git
 cd FreeNET
-
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-export VLESS_UUID="$(python -c 'import uuid; print(uuid.uuid4())')"
-uvicorn main:app --reload --port 8000
 ```
 
-Then hit `http://127.0.0.1:8000/sub/$VLESS_UUID` to see the generated subscription.
+Create a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Create a local data directory:
+
+```bash
+mkdir -p data
+```
+
+Run FreeNET:
+
+```bash
+FREENET_DATA_DIR=./data PORT=8000 python main.py
+```
+
+The generated identity will be available at:
+
+```bash
+cat data/identity.json
+```
+
+Local subscription:
+
+```text
+http://localhost:8000/sub/<subscription_token>
+```
+
+For actual client usage, use a public HTTPS domain.
 
 ---
 
-## 📦 Docker
+## 🐳 Docker
 
-Build and run without relying on any external tooling:
+Build:
 
 ```bash
-docker build -t freenet:latest .
-
-docker run -d --name freenet \
-  -p 8000:8000 \
-  -e VLESS_UUID=00000000-0000-0000-0000-000000000000 \
-  freenet:latest
+docker build -t freenet .
 ```
 
-The container runs as a non-root user (`freenet`) and listens on `$PORT` (defaults to `8000`).
+Create persistent storage:
+
+```bash
+docker volume create freenet-data
+```
+
+Run:
+
+```bash
+docker run --rm \
+  -p 8000:8000 \
+  -e PORT=8000 \
+  -v freenet-data:/data \
+  freenet
+```
+
+The identity file will be stored inside:
+
+```text
+/data/identity.json
+```
+
+---
+
+## 🗂️ Project Structure
+
+```text
+FreeNET/
+├── main.py
+├── core.py
+├── protocols/
+│   ├── vless.py
+│   ├── xhttp.py
+│   └── trojan.py
+├── Dockerfile
+├── railway.json
+├── requirements.txt
+├── .dockerignore
+├── .gitignore
+├── README.md
+└── README-fa.md
+```
+
+| File                  | Purpose                                        |
+| --------------------- | ---------------------------------------------- |
+| `main.py`             | FastAPI application, identity and subscription |
+| `core.py`             | TCP relay and global statistics                |
+| `protocols/vless.py`  | VLESS over WebSocket                           |
+| `protocols/xhttp.py`  | XHTTP transport                                |
+| `protocols/trojan.py` | Trojan over WebSocket                          |
+| `Dockerfile`          | Container image                                |
+| `railway.json`        | Railway deployment configuration               |
+| `requirements.txt`    | Python runtime dependencies                    |
+
+---
+
+## 🔐 Security / Notes
+
+Your identity file is private:
+
+```text
+/data/identity.json
+```
+
+It contains:
+
+```text
+uuid
+trojan_password
+subscription_token
+```
+
+Anyone with your subscription token can access the subscription and obtain your proxy configurations.
+
+Keep these values private.
+
+Do not:
+
+* commit `/data`
+* publish `identity.json`
+* share your subscription token publicly
+* share your Trojan password publicly
+
+### Losing the identity
+
+If:
+
+```text
+/data/identity.json
+```
+
+is deleted, FreeNET generates a new identity.
+
+That means existing proxy links will stop working.
+
+If the identity file is corrupted, FreeNET refuses to silently regenerate it.
+
+Keep a backup if preserving existing links matters to you.
 
 ---
 
 ## ❓ Troubleshooting
 
-**The container exits immediately on startup.**
-Check the logs. It almost certainly means `VLESS_UUID` is missing or malformed. FreeNET refuses to boot without a valid UUID.
+### `Data directory is not available`
 
-**The subscription returns 404.**
-The `{uuid}` in the URL must match `VLESS_UUID` exactly. Both are compared case-insensitively but everything else must line up.
+Make sure a writable directory or Railway Volume exists at:
 
-**The client connects but no traffic flows on XHTTP.**
-Some CDNs rewrite or buffer HTTP POST bodies. If `packet-up` misbehaves behind a particular proxy, try `stream-up` first, and vice versa.
+```text
+/data
+```
 
-**Links generated behind Railway point to `localhost`.**
-Make sure you generated a public domain on the Railway service. The subscription endpoint uses the incoming request's `Host` header — if you access it through an internal URL, the host will be internal.
+For local usage, you can set:
+
+```text
+FREENET_DATA_DIR
+```
+
+to another writable directory.
+
+### Subscription returns `404`
+
+Make sure you are using the exact:
+
+```text
+subscription_token
+```
+
+from:
+
+```text
+/data/identity.json
+```
+
+The subscription URL uses the token, not the UUID:
+
+```text
+/sub/<subscription_token>
+```
+
+### Subscription uses the wrong host
+
+FreeNET builds subscription links from the incoming request host.
+
+Use your public Railway domain when opening the subscription.
+
+### Client cannot connect
+
+Check:
+
+* Railway domain is public
+* TLS is enabled
+* the UUID is correct
+* the Trojan password is correct
+* the configured path is correct
+* the client supports the selected transport
+* XHTTP is using the supported mode
+
+### Statistics reset
+
+Make sure the Railway Volume is still mounted at:
+
+```text
+/data
+```
+
+Statistics are stored in:
+
+```text
+/data/stats.json
+```
 
 ---
 
-## ⚠️ Notes
+## 📣 MHDLabs
 
-- FreeNET holds **one UUID**. There is no per-user quota, no IP limit, no speed limit, no expiry, no rotation.
-- If the UUID leaks, your only recovery is to change `VLESS_UUID` and restart the service — all existing clients will lose access.
-- The `VLESS_UUID` value is a secret. Do not commit it to the repository, and do not paste it into a public issue. Store it as a Railway environment variable.
-- FreeNET is meant to be tiny. If you need a panel, a Telegram bot, sub-groups, quotas or per-user limits, use the larger X4G project instead.
+More projects and updates:
+
+**Telegram:** https://t.me/MHDLabs
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+FreeNET is released under the **MIT License**.
 
 ---
 
-Made with ❤️ and a little bit of ☕ by **MHDLabs**
-
+Made with ❤️ in **MHDLabs**
